@@ -1,12 +1,14 @@
+use crate::ReadId;
+
 #[derive(Default, Debug)]
 pub struct BucketList {
     filenames: Vec<String>,
-    number_of_reads: u32,
+    number_of_reads: ReadId,
     sample_name: String,
 }
 
 impl BucketList {
-    pub fn new(sample_name: String, filenames: Vec<String>, number_of_reads: u32) -> Self {
+    pub fn new(sample_name: String, filenames: Vec<String>, number_of_reads: ReadId) -> Self {
         Self {
             filenames,
             number_of_reads,
@@ -18,7 +20,7 @@ impl BucketList {
         &self.filenames
     }
 
-    pub fn number_of_reads(&self) -> u32 {
+    pub fn number_of_reads(&self) -> ReadId {
         self.number_of_reads
     }
 

@@ -1,16 +1,16 @@
+use crate::{kmer::Kmer, ReadId};
 use std::cmp::Ordering;
 
-use crate::kmer::Kmer;
-
+/// A kmer paired with a read id.
 #[derive(Debug)]
 pub struct KmerRead {
     kmer: Kmer,
-    read_id: u32,
+    read_id: ReadId,
 }
 
 impl KmerRead {
     #[inline(always)]
-    pub fn new(kmer: Kmer, read_id: u32) -> Self {
+    pub fn new(kmer: Kmer, read_id: ReadId) -> Self {
         Self { kmer, read_id }
     }
 
@@ -20,7 +20,7 @@ impl KmerRead {
     }
 
     #[inline(always)]
-    pub fn read_id(&self) -> u32 {
+    pub fn read_id(&self) -> ReadId {
         self.read_id
     }
 }

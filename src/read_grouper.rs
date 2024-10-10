@@ -1,4 +1,7 @@
-use crate::{bucket_list::BucketList, kmer::Kmer, kmer_bucket::KmerBucket, kmer_read::KmerRead};
+use crate::{
+    bucket_list::BucketList, buf_reader_kmer_read::BufReaderKmerRead, kmer::Kmer,
+    kmer_bucket::KmerBucket, kmer_read::KmerRead, min_max_reads::MinMaxReads, ReadId,
+};
 use anyhow::{anyhow, Result};
 use bam::RecordReader;
 use std::{
@@ -15,7 +18,7 @@ pub struct ReadGrouper {
     bucket_dir: String,
     min_base_quality: u8,
     max_bucket_size: usize,
-    writing: Arc<Mutex<u32>>,
+    writing: Arc<Mutex<usize>>,
 }
 
 impl ReadGrouper {
@@ -45,7 +48,7 @@ impl ReadGrouper {
             self.writing.clone(),
         );
         let filenames: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let mut read_number: u32 = 0;
+        let mut read_number: ReadId = 0;
         loop {
             match reader.read_into(&mut record) {
                 Ok(true) => {}
@@ -114,13 +117,57 @@ impl ReadGrouper {
             if *self.writing.lock().unwrap() == 0 {
                 break;
             }
-            // println!("Waiting for writing threads to finish");
             thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        println!("Processed {read_number} reads");
-        let filenames = Arc::into_inner(filenames).unwrap().into_inner().unwrap(); // TODO error handling
+        // Create metadata to return
+        let filenames = Arc::into_inner(filenames)
+            .ok_or_else(|| anyhow!("No access to inner filenames from Arc"))?
+            .into_inner()?;
         let bucket_list = BucketList::new(sample_name, filenames, read_number);
         Ok(bucket_list)
+    }
+
+    fn process_kmer_grouped_reads(&self, kmer: &Kmer, reads: &Vec<ReadId>, min_max: &MinMaxReads) {
+        if min_max.is_valid(reads.len()) {
+            println!("{kmer:?}: {reads:?}");
+        }
+    }
+
+    pub fn process_buckets(&self, bucket_list: &BucketList, min_max: &MinMaxReads) -> Result<()> {
+        let mut readers = Vec::new();
+        for filename in bucket_list.filenames() {
+            let reader = BufReaderKmerRead::new(filename)?;
+            readers.push(reader);
+        }
+
+        let mut last_kmer = Kmer::new(0);
+        let mut last_reads_ids = Vec::new();
+        while !readers.is_empty() {
+            let min_key = readers
+                .iter()
+                .enumerate()
+                .min_by_key(|&(_, value)| value)
+                .map(|(key, _)| key);
+            let min_key = match min_key {
+                Some(min_key) => min_key,
+                None => break,
+            };
+            let kmer_read = readers[min_key].last_kmer_read().to_owned();
+
+            // println!("{kmer_read:?}");
+            if last_kmer != *kmer_read.kmer() {
+                self.process_kmer_grouped_reads(&last_kmer, &last_reads_ids, min_max);
+                last_reads_ids.clear();
+                last_kmer.clone_from(kmer_read.kmer());
+            }
+            last_reads_ids.push(kmer_read.read_id());
+
+            if readers[min_key].read_next_kmer() {
+                readers.remove(min_key);
+            }
+        }
+        self.process_kmer_grouped_reads(&last_kmer, &last_reads_ids, min_max);
+        Ok(())
     }
 }

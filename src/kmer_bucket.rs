@@ -9,11 +9,11 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct KmerBucket {
     kmer_reads: Vec<KmerRead>,
-    bucket_id: u32,
+    bucket_id: usize,
     bucket_size: usize,
     bucket_dir: String,
     sample_name: String,
-    writing: Arc<Mutex<u32>>,
+    writing: Arc<Mutex<usize>>,
 }
 
 impl KmerBucket {
@@ -21,14 +21,14 @@ impl KmerBucket {
         bucket_size: usize,
         bucket_dir: &str,
         sample_name: &str,
-        writing: Arc<Mutex<u32>>,
+        writing: Arc<Mutex<usize>>,
     ) -> Self {
         Self {
             bucket_id: 0,
             bucket_size,
             bucket_dir: bucket_dir.to_string(),
             sample_name: sample_name.to_string(),
-            kmer_reads: Vec::new(),
+            kmer_reads: Vec::with_capacity(bucket_size + 1),
             writing,
         }
     }
@@ -40,7 +40,7 @@ impl KmerBucket {
             bucket_dir: self.bucket_dir.clone(),
             sample_name: self.sample_name.clone(),
             writing: self.writing.clone(),
-            kmer_reads: Vec::new(),
+            kmer_reads: Vec::with_capacity(self.bucket_size + 1),
         }
     }
 

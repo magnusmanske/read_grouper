@@ -1,10 +1,11 @@
 use rayon::prelude::*;
 use std::cmp::Ordering;
 
-const BASES_PER_KMER: usize = 16;
-type KmerBits = u32;
+use crate::KmerBits;
 
-#[derive(Debug)]
+const BASES_PER_KMER: usize = 16;
+
+#[derive(Clone, Debug)]
 pub struct Kmer(KmerBits);
 
 impl Kmer {
@@ -37,12 +38,11 @@ impl Kmer {
     }
 
     #[inline(always)]
-    fn build_kmer_min(seq: &[u8], qual: &[u8], min_base_quality: u8) -> Option<KmerBits> {
+    fn build_kmer_min(seq: &[u8], quality_scores: &[u8], min_base_quality: u8) -> Option<KmerBits> {
         let mut kmer = 0;
         for i in 0..BASES_PER_KMER {
             let base = seq[i];
-            let quality = qual[i];
-            if quality < min_base_quality {
+            if quality_scores[i] < min_base_quality {
                 return None;
             }
             let base_forward: KmerBits = match base {
@@ -54,7 +54,7 @@ impl Kmer {
             };
             kmer = (kmer << 2) | base_forward;
         }
-        let reverse_kmer = Self::reverse_by_two_bit_groups_u32(!kmer);
+        let reverse_kmer = Self::reverse_by_two_bit_groups_u32(!kmer); // Reverse complement
         Some(kmer.min(reverse_kmer))
     }
 
@@ -79,18 +79,16 @@ impl Kmer {
 
     #[inline(always)]
     fn build_kmer_pair(
-        seq: &[u8],
-        qual: &[u8],
+        sequence_bases: &[u8],
+        quality_scores: &[u8],
         min_base_quality: u8,
     ) -> Option<(KmerBits, KmerBits)> {
         let mut kmer = 0;
         for i in 0..BASES_PER_KMER {
-            let base = seq[i];
-            let quality = qual[i];
-            if quality < min_base_quality {
+            if quality_scores[i] < min_base_quality {
                 return None;
             }
-            let base_forward: KmerBits = match base {
+            let base_forward: KmerBits = match sequence_bases[i] {
                 b'A' => 0,
                 b'C' => 1,
                 b'G' => 2,
@@ -99,30 +97,31 @@ impl Kmer {
             };
             kmer = (kmer << 2) | base_forward;
         }
-        let reverse_kmer = Self::reverse_by_two_bit_groups_u32(!kmer);
+        let reverse_kmer = Self::reverse_by_two_bit_groups_u32(!kmer); // Reverse complement
         Some((kmer, reverse_kmer))
     }
 
     #[inline(always)]
     pub fn kmers_from_record_incremental(
         sequence: &[u8],
-        qualities: &[u8],
+        quality_scores: &[u8],
         min_base_quality: u8,
     ) -> Vec<KmerBits> {
-        let mut ret = Vec::new();
+        let mut ret = Vec::with_capacity(sequence.len() - BASES_PER_KMER + 1);
 
+        // Generate first kmer
         let seq = &sequence[0..BASES_PER_KMER];
-        let qual = &qualities[0..BASES_PER_KMER];
-        let (mut kmer, mut reverse_kmer) = match Self::build_kmer_pair(seq, qual, min_base_quality)
-        {
-            Some(x) => x,
-            None => return ret,
-        };
-        ret.push(kmer.min(reverse_kmer));
-        for i in BASES_PER_KMER..(sequence.len() - BASES_PER_KMER) {
+        let qual = &quality_scores[0..BASES_PER_KMER];
+        let (mut kmer, mut reverse_complement_kmer) =
+            match Self::build_kmer_pair(seq, qual, min_base_quality) {
+                Some(x) => x,
+                None => return ret,
+            };
+        ret.push(kmer.min(reverse_complement_kmer));
+
+        for i in BASES_PER_KMER..(sequence.len()) {
             let base = sequence[i];
-            let quality = qualities[i];
-            if quality < min_base_quality {
+            if quality_scores[i] < min_base_quality {
                 break; // Bad quality, abandon entire read
             }
             let base_forward: KmerBits = match base {
@@ -133,8 +132,8 @@ impl Kmer {
                 _ => break, // Weird IUPAC letter, abandon entire read
             };
             kmer = (kmer << 2) | base_forward;
-            reverse_kmer = Self::reverse_by_two_bit_groups_u32(!kmer);
-            ret.push(kmer.min(reverse_kmer));
+            reverse_complement_kmer = Self::reverse_by_two_bit_groups_u32(!kmer); // Reverse complement
+            ret.push(kmer.min(reverse_complement_kmer));
         }
         ret.sort();
         ret.dedup();
@@ -178,9 +177,28 @@ mod tests {
         assert_eq!(Kmer::reverse_by_two_bit_groups_u32(3 << 16), 3 << 14);
         assert_eq!(Kmer::reverse_by_two_bit_groups_u32(3 << 14), 3 << 16);
         assert_eq!(Kmer::reverse_by_two_bit_groups_u32(3 << 12), 3 << 18);
-        let value: u32 = 12345 | 6789 << 8 | 65432 << 16 | 23456 << 24;
+        let value: KmerBits = 12345 | 6789 << 8 | 65432 << 16 | 23456 << 24;
         let reverse = Kmer::reverse_by_two_bit_groups_u32(value);
         let original = Kmer::reverse_by_two_bit_groups_u32(reverse);
         assert_eq!(value, original);
+    }
+
+    #[test]
+    fn test_build_kmer_pair() {
+        let seq = b"ACGTACGTACGTGTAC";
+        let qual = [
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+        ];
+        let (kmer, reverse_complement) = Kmer::build_kmer_pair(seq, &qual, 40).unwrap();
+        assert_eq!(kmer, 0x1B1B1BB1);
+        assert_eq!(
+            reverse_complement,
+            Kmer::reverse_by_two_bit_groups_u32(!kmer)
+        );
+
+        let qual = [
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 39,
+        ];
+        assert_eq!(Kmer::build_kmer_pair(seq, &qual, 40), None);
     }
 }
