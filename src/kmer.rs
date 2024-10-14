@@ -5,7 +5,7 @@ use crate::KmerBits;
 
 const BASES_PER_KMER: usize = 16;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Kmer(KmerBits);
 
 impl Kmer {

@@ -1,11 +1,15 @@
 use anyhow::Result;
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 pub trait BucketDataWrite {
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()>;
+}
+
+pub trait BucketDataRead {
+    fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()>;
 }
 
 #[derive(Debug)]

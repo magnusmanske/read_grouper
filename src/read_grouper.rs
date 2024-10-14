@@ -1,7 +1,6 @@
 use crate::{
-    bucket_list::BucketList, buf_reader_kmer_read::BufReaderKmerRead, data_bucket::DataBucket,
-    kmer::Kmer, kmer_read::KmerRead, min_max_reads::MinMaxReads, read_pair_kmer::ReadPairKmer,
-    ReadId,
+    bucket_list::BucketList, buf_reader_entry::BufReaderEntry, data_bucket::DataBucket, kmer::Kmer,
+    kmer_read::KmerRead, min_max_reads::MinMaxReads, read_pair_kmer::ReadPairKmer, ReadId,
 };
 use anyhow::{anyhow, Result};
 use bam::RecordReader;
@@ -114,6 +113,7 @@ impl ReadGrouper {
         bucket_list: &BucketList,
         min_max: &MinMaxReads,
     ) -> Result<(BucketList, HashMap<usize, usize>)> {
+        type BufReaderKmerRead = BufReaderEntry<KmerRead>;
         let mut readers = Vec::new();
         for filename in bucket_list.filenames() {
             let reader = BufReaderKmerRead::new(filename)?;
@@ -141,7 +141,7 @@ impl ReadGrouper {
                 Some(min_key) => min_key,
                 None => break,
             };
-            let kmer_read = readers[min_key].last_kmer_read();
+            let kmer_read = readers[min_key].last_entry_read();
 
             // Flush reads if new kmer
             if last_kmer != *kmer_read.kmer() {

@@ -1,11 +1,12 @@
-use crate::data_bucket::BucketDataWrite;
+use crate::data_bucket::{BucketDataRead, BucketDataWrite};
+use crate::KmerBits;
 use crate::{kmer::Kmer, ReadId};
 use anyhow::Result;
-use std::io::Write;
+use std::io::{BufReader, Read, Write};
 use std::{cmp::Ordering, fs::File, io::BufWriter};
 
 /// A kmer paired with a read id.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct KmerRead {
     kmer: Kmer,
     read_id: ReadId,
@@ -33,6 +34,18 @@ impl BucketDataWrite for KmerRead {
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()> {
         buffer.write_all(&self.kmer().to_le_bytes())?;
         buffer.write_all(&self.read_id().to_le_bytes())?;
+        Ok(())
+    }
+}
+
+impl BucketDataRead for KmerRead {
+    #[inline(always)]
+    fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()> {
+        let mut buffer = [0; 4];
+        file_buffer.read_exact(&mut buffer[..])?;
+        self.kmer = Kmer::new(KmerBits::from_le_bytes(buffer));
+        file_buffer.read_exact(&mut buffer[..])?;
+        self.read_id = KmerBits::from_le_bytes(buffer);
         Ok(())
     }
 }

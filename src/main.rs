@@ -1,5 +1,5 @@
 mod bucket_list;
-mod buf_reader_kmer_read;
+mod buf_reader_entry;
 mod data_bucket;
 mod kmer;
 mod kmer_read;
