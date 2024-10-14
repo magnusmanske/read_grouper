@@ -33,7 +33,7 @@ impl BufReaderKmerRead {
     }
 
     // Returns true if the file has reached the end
-    pub fn read_next_kmer(&mut self) -> bool {
+    pub fn read_next_kmer_failed(&mut self) -> bool {
         match Self::get_kmer_read_from_buffer(&mut self.buffer) {
             Some(kmer_read) => {
                 self.last_kmer_read = kmer_read;

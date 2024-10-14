@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
 
 use crate::KmerBits;
 
@@ -138,6 +138,22 @@ impl Kmer {
         ret.sort();
         ret.dedup();
         ret
+    }
+}
+
+impl fmt::Display for Kmer {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        for pos in 0..BASES_PER_KMER {
+            let base = match (self.0 >> (2 * (BASES_PER_KMER - pos - 1))) & 0b11 {
+                0 => b'A',
+                1 => b'C',
+                2 => b'G',
+                3 => b'T',
+                _ => unreachable!(),
+            };
+            write!(fmt, "{}", base as char)?;
+        }
+        Ok(())
     }
 }
 

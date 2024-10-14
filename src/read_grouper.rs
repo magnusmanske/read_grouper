@@ -1,24 +1,23 @@
 use crate::{
-    bucket_list::BucketList, buf_reader_kmer_read::BufReaderKmerRead, kmer::Kmer,
-    kmer_bucket::KmerBucket, kmer_read::KmerRead, min_max_reads::MinMaxReads, ReadId,
+    bucket_list::BucketList, buf_reader_kmer_read::BufReaderKmerRead, data_bucket::DataBucket,
+    kmer::Kmer, kmer_read::KmerRead, min_max_reads::MinMaxReads, read_pair_kmer::ReadPairKmer,
+    ReadId,
 };
 use anyhow::{anyhow, Result};
 use bam::RecordReader;
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-    thread,
-};
+use std::{collections::HashMap, path::Path, sync::Arc, thread};
 
 const DEFAULT_MIN_BASE_QUALITY: u8 = 20;
 const MAX_BUCKET_SIZE: usize = 1_000_000; // kmer-read-pairs
+
+type KmerBucket = DataBucket<KmerRead>;
+type ReadPairKmerBucket = DataBucket<ReadPairKmer>;
 
 #[derive(Default, Debug)]
 pub struct ReadGrouper {
     bucket_dir: String,
     min_base_quality: u8,
     max_bucket_size: usize,
-    writing: Arc<Mutex<usize>>,
 }
 
 impl ReadGrouper {
@@ -27,28 +26,22 @@ impl ReadGrouper {
             bucket_dir: bucket_dir.to_string(),
             min_base_quality: DEFAULT_MIN_BASE_QUALITY,
             max_bucket_size: MAX_BUCKET_SIZE,
-            writing: Arc::new(Mutex::new(0)),
         }
     }
 
     pub fn read_bam_file(&self, file_path: &str) -> Result<BucketList> {
         let file_path = Path::new(file_path);
-        let sample_name = file_path
-            .file_stem()
-            .ok_or_else(|| anyhow!("Could not generate sample name from filename [1]"))?
-            .to_str()
-            .ok_or_else(|| anyhow!("Could not generate sample name from filename [2]"))?
-            .to_string();
+        let sample_name = Self::file_path_to_sample_name(file_path)?;
         let mut reader = bam::BamReader::from_path(file_path, 4)?;
         let mut record = bam::Record::new();
-        let mut kmer_bucket = KmerBucket::new(
+        let mut out_bucket = KmerBucket::new(
             self.max_bucket_size,
             &self.bucket_dir,
             &sample_name,
-            self.writing.clone(),
+            "pairs",
         );
-        let filenames: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let mut read_number: ReadId = 0;
+
         loop {
             match reader.read_into(&mut record) {
                 Ok(true) => {}
@@ -56,6 +49,7 @@ impl ReadGrouper {
                 Err(e) => panic!("{}", e),
             }
 
+            // Generate and process kmers
             let sequence = record.sequence().to_vec();
             let qualities = record.qualities().raw();
             let kmers = if true {
@@ -65,85 +59,78 @@ impl ReadGrouper {
                 // More kmers after bad bases/qualitiy scores
                 Kmer::kmers_from_record_de_novo(&sequence, qualities, self.min_base_quality)
             };
-
             for kmer in kmers {
-                let kmer = Kmer::new(kmer);
-                let kmer_read = KmerRead::new(kmer, read_number);
-                kmer_bucket.add(kmer_read);
-
-                if kmer_bucket.is_full() {
-                    let next_bucket = kmer_bucket.next_bucket();
-                    let mut last_kmer_bucket = kmer_bucket;
-                    let filenames_clone = filenames.clone();
-                    let writing_clone = self.writing.clone();
-                    *writing_clone.lock().unwrap() += 1;
-                    let _ = thread::spawn(move || {
-                        let result = last_kmer_bucket.write_to_disk();
-                        let result = match result {
-                            Ok(result) => result,
-                            Err(e) => panic!("Error writing final bucket to disk: {}", e),
-                        };
-                        // TODO handle error
-                        if let Some(filename) = result {
-                            filenames_clone.lock().unwrap().push(filename);
-                        }
-                        *writing_clone.lock().unwrap() -= 1;
-                    });
-                    kmer_bucket = next_bucket;
-                }
+                out_bucket.add(KmerRead::new(Kmer::new(kmer), read_number));
             }
+
+            // Flush bucket to disk and start a new one, if necessary
+            if out_bucket.is_full() {
+                let next_bucket = out_bucket.next_bucket();
+                out_bucket.start_writing();
+                let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
+                out_bucket = next_bucket;
+            }
+
             read_number += 1;
         }
 
         // Write final bucket to disk
-        let filenames_clone = filenames.clone();
-        let writing_clone = self.writing.clone();
-        *writing_clone.lock().unwrap() += 1;
-        let _ = thread::spawn(move || {
-            let result = kmer_bucket.write_to_disk();
-            let result = match result {
-                Ok(result) => result,
-                Err(e) => panic!("Error writing final bucket to disk: {}", e),
-            };
-            // TODO handle error
-            if let Some(filename) = result {
-                filenames_clone.lock().unwrap().push(filename);
-            }
-            *writing_clone.lock().unwrap() -= 1;
-        });
+        let currently_writing = out_bucket.currently_writing().clone();
+        let filenames = out_bucket.filenames().clone();
+        out_bucket.start_writing();
+        let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
 
-        // Wait for all writing threads to finish
-        loop {
-            if *self.writing.lock().unwrap() == 0 {
-                break;
-            }
-            thread::sleep(std::time::Duration::from_millis(10));
-        }
+        Self::wait_for_zero_lock(currently_writing);
 
         // Create metadata to return
-        let filenames = Arc::into_inner(filenames)
-            .ok_or_else(|| anyhow!("No access to inner filenames from Arc"))?
-            .into_inner()?;
+        let filenames = filenames.lock().unwrap().clone();
         let bucket_list = BucketList::new(sample_name, filenames, read_number);
         Ok(bucket_list)
     }
 
-    fn process_kmer_grouped_reads(&self, kmer: &Kmer, reads: &Vec<ReadId>, min_max: &MinMaxReads) {
+    fn process_kmer_grouped_reads(
+        &self,
+        kmer: &Kmer,
+        reads: &mut Vec<ReadId>,
+        min_max: &MinMaxReads,
+        bucket: &mut DataBucket<ReadPairKmer>,
+    ) {
+        // Reads will be sorted already
+        reads.dedup();
         if min_max.is_valid(reads.len()) {
-            println!("{kmer:?}: {reads:?}");
+            for read2_pos in 1..reads.len() {
+                for read1_pos in 0..read2_pos {
+                    let rpk = ReadPairKmer::new(reads[read1_pos], reads[read2_pos], kmer);
+                    bucket.add(rpk);
+                }
+            }
+            // println!("{kmer}: {reads:?}");
         }
+        reads.clear();
     }
 
-    pub fn process_buckets(&self, bucket_list: &BucketList, min_max: &MinMaxReads) -> Result<()> {
+    pub fn process_buckets(
+        &self,
+        bucket_list: &BucketList,
+        min_max: &MinMaxReads,
+    ) -> Result<HashMap<usize, usize>> {
         let mut readers = Vec::new();
         for filename in bucket_list.filenames() {
             let reader = BufReaderKmerRead::new(filename)?;
             readers.push(reader);
         }
 
+        let mut out_bucket = ReadPairKmerBucket::new(
+            self.max_bucket_size,
+            &self.bucket_dir,
+            bucket_list.sample_name(),
+            "read_pairs",
+        );
+        let mut stats = HashMap::new();
         let mut last_kmer = Kmer::new(0);
         let mut last_reads_ids = Vec::new();
         while !readers.is_empty() {
+            // Find the next kmer/read pair to process
             let min_key = readers
                 .iter()
                 .enumerate()
@@ -155,19 +142,64 @@ impl ReadGrouper {
             };
             let kmer_read = readers[min_key].last_kmer_read().to_owned();
 
-            // println!("{kmer_read:?}");
+            // Flush reads if new kmer
             if last_kmer != *kmer_read.kmer() {
-                self.process_kmer_grouped_reads(&last_kmer, &last_reads_ids, min_max);
-                last_reads_ids.clear();
+                *stats.entry(last_reads_ids.len()).or_insert(0usize) += 1;
+                self.process_kmer_grouped_reads(
+                    &last_kmer,
+                    &mut last_reads_ids,
+                    min_max,
+                    &mut out_bucket,
+                );
                 last_kmer.clone_from(kmer_read.kmer());
+
+                if out_bucket.is_full() {
+                    let next_bucket = out_bucket.next_bucket();
+                    out_bucket.start_writing();
+                    let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
+                    out_bucket = next_bucket;
+                }
             }
             last_reads_ids.push(kmer_read.read_id());
 
-            if readers[min_key].read_next_kmer() {
+            // Remove reader if it has no more kmers
+            if readers[min_key].read_next_kmer_failed() {
                 readers.remove(min_key);
             }
         }
-        self.process_kmer_grouped_reads(&last_kmer, &last_reads_ids, min_max);
-        Ok(())
+
+        *stats.entry(last_reads_ids.len()).or_insert(0) += 1;
+        self.process_kmer_grouped_reads(&last_kmer, &mut last_reads_ids, min_max, &mut out_bucket);
+        stats.remove(&0); // Remove 0-read group
+
+        // Write final bucket to disk
+        let currently_writing = out_bucket.currently_writing().clone();
+        let filenames = out_bucket.filenames().clone();
+        out_bucket.start_writing();
+        let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
+
+        Self::wait_for_zero_lock(currently_writing);
+
+        let _filenames = filenames.lock().unwrap().clone(); // TODO make bucket_list
+        Ok(stats)
+    }
+
+    fn file_path_to_sample_name(file_path: &Path) -> Result<String> {
+        Ok(file_path
+            .file_stem()
+            .ok_or_else(|| anyhow!("Could not generate sample name from filename [1]"))?
+            .to_str()
+            .ok_or_else(|| anyhow!("Could not generate sample name from filename [2]"))?
+            .to_string())
+    }
+
+    fn wait_for_zero_lock(counter_mutex: Arc<std::sync::Mutex<usize>>) {
+        // Wait for all writing threads to finish
+        loop {
+            if *counter_mutex.lock().unwrap() == 0 {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 }

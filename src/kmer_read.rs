@@ -1,5 +1,8 @@
+use crate::data_bucket::BucketDataWrite;
 use crate::{kmer::Kmer, ReadId};
-use std::cmp::Ordering;
+use anyhow::Result;
+use std::io::Write;
+use std::{cmp::Ordering, fs::File, io::BufWriter};
 
 /// A kmer paired with a read id.
 #[derive(Debug)]
@@ -25,7 +28,17 @@ impl KmerRead {
     }
 }
 
+impl BucketDataWrite for KmerRead {
+    #[inline(always)]
+    fn write(&self, buffer: &mut BufWriter<File>) -> Result<()> {
+        buffer.write_all(&self.kmer().to_le_bytes())?;
+        buffer.write_all(&self.read_id().to_le_bytes())?;
+        Ok(())
+    }
+}
+
 impl Ord for KmerRead {
+    #[inline(always)]
     fn cmp(&self, other: &Self) -> Ordering {
         self.kmer()
             .cmp(&other.kmer)
@@ -34,6 +47,7 @@ impl Ord for KmerRead {
 }
 
 impl PartialOrd for KmerRead {
+    #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -42,6 +56,7 @@ impl PartialOrd for KmerRead {
 impl Eq for KmerRead {}
 
 impl PartialEq for KmerRead {
+    #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.kmer == other.kmer && self.read_id == other.read_id
     }
