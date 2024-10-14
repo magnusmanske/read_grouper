@@ -63,6 +63,11 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
     }
 
     #[inline(always)]
+    fn end_writing(&self) {
+        *self.currently_writing.lock().unwrap() -= 1;
+    }
+
+    #[inline(always)]
     pub fn add(&mut self, pair: T) {
         self.pairs.push(pair);
     }
@@ -100,13 +105,13 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
 
     pub fn write_to_disk(&mut self) -> Result<()> {
         if self.is_empty() {
-            *self.currently_writing.lock().unwrap() -= 1;
+            self.end_writing();
             return Ok(());
         }
         let filename = self.construct_filename();
         if Path::new(&filename).exists() {
             self.set_filename(filename);
-            *self.currently_writing.lock().unwrap() -= 1;
+            self.end_writing();
             return Ok(());
         }
         self.pairs.sort();
@@ -116,7 +121,7 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
             pair.write(&mut file)?;
         }
         self.set_filename(filename);
-        *self.currently_writing.lock().unwrap() -= 1;
+        self.end_writing();
         Ok(())
     }
 }

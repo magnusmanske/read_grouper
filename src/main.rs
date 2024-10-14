@@ -22,8 +22,8 @@ fn main() {
     println!("Number of reads: {}", bucket_list.number_of_reads());
     println!("Files: {}", bucket_list.filenames().len());
 
-    let _stats = rg
-        .process_buckets(&bucket_list, &MinMaxReads::new(3, 50))
+    let (_bucket_list, _stats) = rg
+        .process_read_kmer_buckets(&bucket_list, &MinMaxReads::new(3, 50))
         .unwrap();
     // let mut keys = stats.keys().cloned().collect::<Vec<_>>();
     // keys.sort();

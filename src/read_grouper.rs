@@ -109,21 +109,22 @@ impl ReadGrouper {
         reads.clear();
     }
 
-    pub fn process_buckets(
+    pub fn process_read_kmer_buckets(
         &self,
         bucket_list: &BucketList,
         min_max: &MinMaxReads,
-    ) -> Result<HashMap<usize, usize>> {
+    ) -> Result<(BucketList, HashMap<usize, usize>)> {
         let mut readers = Vec::new();
         for filename in bucket_list.filenames() {
             let reader = BufReaderKmerRead::new(filename)?;
             readers.push(reader);
         }
 
+        let sample_name = bucket_list.sample_name().to_string();
         let mut out_bucket = ReadPairKmerBucket::new(
             self.max_bucket_size,
             &self.bucket_dir,
-            bucket_list.sample_name(),
+            &sample_name,
             "read_pairs",
         );
         let mut stats = HashMap::new();
@@ -140,7 +141,7 @@ impl ReadGrouper {
                 Some(min_key) => min_key,
                 None => break,
             };
-            let kmer_read = readers[min_key].last_kmer_read().to_owned();
+            let kmer_read = readers[min_key].last_kmer_read();
 
             // Flush reads if new kmer
             if last_kmer != *kmer_read.kmer() {
@@ -180,8 +181,9 @@ impl ReadGrouper {
 
         Self::wait_for_zero_lock(currently_writing);
 
-        let _filenames = filenames.lock().unwrap().clone(); // TODO make bucket_list
-        Ok(stats)
+        let filenames = filenames.lock().unwrap().clone();
+        let bucket_list = BucketList::new(sample_name, filenames, 0);
+        Ok((bucket_list, stats))
     }
 
     fn file_path_to_sample_name(file_path: &Path) -> Result<String> {
