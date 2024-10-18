@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::{mem, thread};
 
 pub trait BucketDataWrite {
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()>;
@@ -24,7 +25,7 @@ pub struct DataBucket<T> {
     filenames: Arc<Mutex<Vec<String>>>,
 }
 
-impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
+impl<T: std::cmp::Ord + BucketDataWrite + Send + 'static> DataBucket<T> {
     pub fn new(bucket_size: usize, bucket_dir: &str, sample_name: &str, ending: &str) -> Self {
         Self {
             bucket_id: 0,
@@ -38,9 +39,29 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
         }
     }
 
-    pub fn next_bucket(&self) -> Self {
-        Self {
-            bucket_id: self.bucket_id + 1,
+    #[inline(always)]
+    pub fn add(&mut self, pair: T) {
+        self.pairs.push(pair);
+        self.flush();
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<String>> {
+        self.start_writing();
+        self.write_to_disk()?; // Blocking main thread for final write
+        self.wait_for_zero_lock();
+        let filenames = self.filenames.lock().unwrap().clone();
+        Ok(filenames)
+    }
+
+    #[inline(always)]
+    fn flush(&mut self) {
+        if !self.is_full() {
+            return;
+        }
+
+        // Duplicate this bucket, with empty data
+        let mut bucket_to_write = Self {
+            bucket_id: self.bucket_id,
             bucket_size: self.bucket_size,
             bucket_dir: self.bucket_dir.clone(),
             sample_name: self.sample_name.clone(),
@@ -48,21 +69,31 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
             pairs: Vec::with_capacity(self.bucket_size + 1),
             currently_writing: self.currently_writing.clone(),
             filenames: self.filenames.clone(),
+        };
+
+        // Swap data with the new bucket
+        mem::swap(&mut bucket_to_write.pairs, &mut self.pairs);
+
+        // Increase the bucket counter
+        self.bucket_id += 1;
+
+        // Start writing the bucket to disk in a new thread
+        bucket_to_write.start_writing();
+        let _ = thread::spawn(move || bucket_to_write.write_to_disk().unwrap());
+    }
+
+    fn wait_for_zero_lock(&self) {
+        // Wait for all writing threads to finish
+        loop {
+            if *self.currently_writing.lock().unwrap() == 0 {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
         }
     }
 
     #[inline(always)]
-    pub fn filenames(&self) -> &Arc<Mutex<Vec<String>>> {
-        &self.filenames
-    }
-
-    #[inline(always)]
-    pub fn currently_writing(&self) -> &Arc<Mutex<usize>> {
-        &self.currently_writing
-    }
-
-    #[inline(always)]
-    pub fn start_writing(&self) {
+    fn start_writing(&self) {
         *self.currently_writing.lock().unwrap() += 1;
     }
 
@@ -72,23 +103,8 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
     }
 
     #[inline(always)]
-    pub fn add(&mut self, pair: T) {
-        self.pairs.push(pair);
-    }
-
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.pairs.len()
-    }
-
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.pairs.is_empty()
-    }
-
-    #[inline(always)]
-    pub fn is_full(&self) -> bool {
-        self.len() >= self.bucket_size
+    fn is_full(&self) -> bool {
+        self.pairs.len() >= self.bucket_size
     }
 
     fn set_filename(&self, filename: String) {
@@ -107,8 +123,8 @@ impl<T: std::cmp::Ord + BucketDataWrite> DataBucket<T> {
         )
     }
 
-    pub fn write_to_disk(&mut self) -> Result<()> {
-        if self.is_empty() {
+    fn write_to_disk(&mut self) -> Result<()> {
+        if self.pairs.is_empty() {
             self.end_writing();
             return Ok(());
         }

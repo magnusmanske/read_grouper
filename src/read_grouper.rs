@@ -1,10 +1,11 @@
 use crate::{
-    bucket_list::BucketList, buf_reader_entry::BufReaderEntry, data_bucket::DataBucket, kmer::Kmer,
-    kmer_read::KmerRead, min_max_reads::MinMaxReads, read_pair_kmer::ReadPairKmer, ReadId,
+    bucket_list::BucketList, data_bucket::DataBucket, kmer::Kmer, kmer_read::KmerRead,
+    min_max_reads::MinMaxReads, multi_buf_reader::MultiBufReader, read_pair_kmer::ReadPairKmer,
+    ReadId,
 };
 use anyhow::{anyhow, Result};
 use bam::RecordReader;
-use std::{collections::HashMap, path::Path, sync::Arc, thread};
+use std::{collections::HashMap, path::Path};
 
 const DEFAULT_MIN_BASE_QUALITY: u8 = 20;
 const MAX_BUCKET_SIZE: usize = 1_000_000; // kmer-read-pairs
@@ -51,38 +52,18 @@ impl ReadGrouper {
             // Generate and process kmers
             let sequence = record.sequence().to_vec();
             let qualities = record.qualities().raw();
-            let kmers = if true {
-                // Faster
-                Kmer::kmers_from_record_incremental(&sequence, qualities, self.min_base_quality)
-            } else {
-                // More kmers after bad bases/qualitiy scores
-                Kmer::kmers_from_record_de_novo(&sequence, qualities, self.min_base_quality)
-            };
+            let kmers =
+                Kmer::kmers_from_record_incremental(&sequence, qualities, self.min_base_quality);
             for kmer in kmers {
                 out_bucket.add(KmerRead::new(Kmer::new(kmer), read_number));
             }
-
-            // Flush bucket to disk and start a new one, if necessary
-            if out_bucket.is_full() {
-                let next_bucket = out_bucket.next_bucket();
-                out_bucket.start_writing();
-                let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
-                out_bucket = next_bucket;
-            }
-
             read_number += 1;
         }
 
         // Write final bucket to disk
-        let currently_writing = out_bucket.currently_writing().clone();
-        let filenames = out_bucket.filenames().clone();
-        out_bucket.start_writing();
-        let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
-
-        Self::wait_for_zero_lock(currently_writing);
+        let filenames = out_bucket.finish()?;
 
         // Create metadata to return
-        let filenames = filenames.lock().unwrap().clone();
         let bucket_list = BucketList::new(sample_name, filenames, read_number);
         Ok(bucket_list)
     }
@@ -113,12 +94,7 @@ impl ReadGrouper {
         bucket_list: &BucketList,
         min_max: &MinMaxReads,
     ) -> Result<(BucketList, HashMap<usize, usize>)> {
-        type BufReaderKmerRead = BufReaderEntry<KmerRead>;
-        let mut readers = Vec::new();
-        for filename in bucket_list.filenames() {
-            let reader = BufReaderKmerRead::new(filename)?;
-            readers.push(reader);
-        }
+        let mut mbr: MultiBufReader<KmerRead> = MultiBufReader::new(bucket_list.filenames());
 
         let sample_name = bucket_list.sample_name().to_string();
         let mut out_bucket = ReadPairKmerBucket::new(
@@ -130,18 +106,11 @@ impl ReadGrouper {
         let mut stats = HashMap::new();
         let mut last_kmer = Kmer::new(0);
         let mut last_reads_ids = Vec::new();
-        while !readers.is_empty() {
-            // Find the next kmer/read pair to process
-            let min_key = readers
-                .iter()
-                .enumerate()
-                .min_by_key(|&(_, value)| value)
-                .map(|(key, _)| key);
-            let min_key = match min_key {
-                Some(min_key) => min_key,
+        while !mbr.is_empty() {
+            let kmer_read = match mbr.next() {
+                Some(kmer_read) => kmer_read,
                 None => break,
             };
-            let kmer_read = readers[min_key].last_entry_read();
 
             // Flush reads if new kmer
             if last_kmer != *kmer_read.kmer() {
@@ -153,20 +122,8 @@ impl ReadGrouper {
                     &mut out_bucket,
                 );
                 last_kmer.clone_from(kmer_read.kmer());
-
-                if out_bucket.is_full() {
-                    let next_bucket = out_bucket.next_bucket();
-                    out_bucket.start_writing();
-                    let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
-                    out_bucket = next_bucket;
-                }
             }
             last_reads_ids.push(kmer_read.read_id());
-
-            // Remove reader if it has no more kmers
-            if readers[min_key].read_next_kmer_failed() {
-                readers.remove(min_key);
-            }
         }
 
         *stats.entry(last_reads_ids.len()).or_insert(0) += 1;
@@ -174,14 +131,8 @@ impl ReadGrouper {
         stats.remove(&0); // Remove 0-read group
 
         // Write final bucket to disk
-        let currently_writing = out_bucket.currently_writing().clone();
-        let filenames = out_bucket.filenames().clone();
-        out_bucket.start_writing();
-        let _ = thread::spawn(move || out_bucket.write_to_disk().unwrap());
+        let filenames = out_bucket.finish()?;
 
-        Self::wait_for_zero_lock(currently_writing);
-
-        let filenames = filenames.lock().unwrap().clone();
         let bucket_list = BucketList::new(sample_name, filenames, 0);
         Ok((bucket_list, stats))
     }
@@ -193,15 +144,5 @@ impl ReadGrouper {
             .to_str()
             .ok_or_else(|| anyhow!("Could not generate sample name from filename [2]"))?
             .to_string())
-    }
-
-    fn wait_for_zero_lock(counter_mutex: Arc<std::sync::Mutex<usize>>) {
-        // Wait for all writing threads to finish
-        loop {
-            if *counter_mutex.lock().unwrap() == 0 {
-                break;
-            }
-            thread::sleep(std::time::Duration::from_millis(10));
-        }
     }
 }

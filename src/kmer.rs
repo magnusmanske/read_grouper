@@ -38,7 +38,11 @@ impl Kmer {
     }
 
     #[inline(always)]
-    fn build_kmer_min(seq: &[u8], quality_scores: &[u8], min_base_quality: u8) -> Option<KmerBits> {
+    fn _build_kmer_min(
+        seq: &[u8],
+        quality_scores: &[u8],
+        min_base_quality: u8,
+    ) -> Option<KmerBits> {
         let mut kmer = 0;
         for i in 0..BASES_PER_KMER {
             let base = seq[i];
@@ -58,7 +62,7 @@ impl Kmer {
         Some(kmer.min(reverse_kmer))
     }
 
-    pub fn kmers_from_record_de_novo(
+    pub fn _kmers_from_record_de_novo(
         sequence: &[u8],
         qualities: &[u8],
         min_base_quality: u8,
@@ -69,7 +73,7 @@ impl Kmer {
             .filter_map(|start| {
                 let seq = &sequence[start..start + BASES_PER_KMER];
                 let qual = &qualities[start..start + BASES_PER_KMER];
-                Self::build_kmer_min(seq, qual, min_base_quality)
+                Self::_build_kmer_min(seq, qual, min_base_quality)
             })
             .collect::<Vec<_>>();
         ret.sort();
@@ -216,5 +220,39 @@ mod tests {
             40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 39,
         ];
         assert_eq!(Kmer::build_kmer_pair(seq, &qual, 40), None);
+    }
+
+    #[test]
+    fn test_kmers_from_record_de_novo() {
+        let seq = b"ACGTACGTACGTGTACACGTACGTACGTGTAC";
+        let qual = [
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+        ];
+        let kmers = Kmer::_kmers_from_record_de_novo(seq, &qual, 40);
+        assert_eq!(
+            kmers,
+            [
+                296858043, 454761393, 454799643, 1187432172, 1819045572, 1819198572, 1858366572,
+                2981214993, 2981826993
+            ]
+        );
+    }
+
+    #[test]
+    fn test_kmers_from_record_incremental() {
+        let seq = b"ACGTACGTACGTGTACACGTACGTACGTGTAC";
+        let qual = [
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+        ];
+        let kmers = Kmer::kmers_from_record_incremental(seq, &qual, 40);
+        assert_eq!(
+            kmers,
+            [
+                296858043, 454761393, 454799643, 1187432172, 1819045572, 1819198572, 1858366572,
+                2981214993, 2981826993
+            ]
+        );
     }
 }

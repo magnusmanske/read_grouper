@@ -6,7 +6,7 @@ use std::io::{BufReader, Read, Write};
 use std::{cmp::Ordering, fs::File, io::BufWriter};
 
 /// A kmer paired with a read id.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct KmerRead {
     kmer: Kmer,
     read_id: ReadId,

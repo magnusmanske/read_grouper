@@ -31,7 +31,7 @@ impl<T: std::cmp::Ord + BucketDataRead + Default> BufReaderEntry<T> {
 
     // Returns true if the file has reached the end
     #[inline(always)]
-    pub fn read_next_kmer_failed(&mut self) -> bool {
+    pub fn read_next_entry_failed(&mut self) -> bool {
         match self.last_entry_read.read(&mut self.buffer) {
             Ok(()) => false,
             Err(_) => true,

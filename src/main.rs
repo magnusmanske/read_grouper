@@ -4,6 +4,7 @@ mod data_bucket;
 mod kmer;
 mod kmer_read;
 mod min_max_reads;
+mod multi_buf_reader;
 mod read_grouper;
 mod read_pair_kmer;
 
