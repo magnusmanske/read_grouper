@@ -5,19 +5,17 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use bam::RecordReader;
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, marker::PhantomData, path::Path};
 
 const DEFAULT_MIN_BASE_QUALITY: u8 = 20;
 const MAX_BUCKET_SIZE: usize = 1_000_000; // kmer-read-pairs
-
-// type KmerBucket = DataBucket<KmerRead>;
-// type ReadPairKmerBucket = DataBucket<ReadPairKmer>;
 
 #[derive(Default, Debug)]
 pub struct ReadGrouper<KmerBits> {
     bucket_dir: String,
     min_base_quality: u8,
     max_bucket_size: usize,
+    kmer_bits_dummy: PhantomData<KmerBits>,
 }
 
 impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
@@ -26,6 +24,7 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
             bucket_dir: bucket_dir.to_string(),
             min_base_quality: DEFAULT_MIN_BASE_QUALITY,
             max_bucket_size: MAX_BUCKET_SIZE,
+            kmer_bits_dummy: PhantomData,
         }
     }
 
@@ -34,7 +33,7 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         let sample_name = Self::file_path_to_sample_name(file_path)?;
         let mut reader = bam::BamReader::from_path(file_path, 4)?;
         let mut record = bam::Record::new();
-        let mut out_bucket: DataBucket<KmerRead<KmerBits>> = DataBucket::new(
+        let mut out_bucket = DataBucket::new(
             self.max_bucket_size,
             &self.bucket_dir,
             &sample_name,
@@ -52,11 +51,10 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
             // Generate and process kmers
             let sequence = record.sequence().to_vec();
             let qualities = record.qualities().raw();
-            let kmers: Kmer<KmerBits> =
-                Kmer::kmers_from_record_incremental(&sequence, qualities, self.min_base_quality);
+            let kmers: Vec<KmerBits> =
+                Kmer::kmers_from_record(&sequence, qualities, self.min_base_quality);
             for kmer in kmers {
-                // out_bucket.add(KmerRead::new(Kmer::new(kmer), read_number));
-                // TODO FIXME
+                out_bucket.add(KmerRead::new(Kmer::new(kmer), read_number));
             }
             read_number += 1;
         }
@@ -96,20 +94,20 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         bucket_list: &BucketList,
         min_max: &MinMaxReads,
     ) -> Result<(BucketList, HashMap<usize, usize>)> {
-        let mut mbr: MultiBufReader<KmerRead> = MultiBufReader::new(bucket_list.filenames());
+        let mut mbr = MultiBufReader::new(bucket_list.filenames());
 
         let sample_name = bucket_list.sample_name().to_string();
-        let mut out_bucket: DataBucket<ReadPairKmer<KmerBits>> = DataBucket::new(
+        let mut out_bucket = DataBucket::new(
             self.max_bucket_size,
             &self.bucket_dir,
             &sample_name,
             "read_pairs",
         );
         let mut stats = HashMap::new();
-        let mut last_kmer: Kmer<KmerBits> = Kmer::new(0);
+        let mut last_kmer: Kmer<KmerBits> = Kmer::default();
         let mut last_reads_ids = Vec::new();
         while !mbr.is_empty() {
-            let kmer_read = match mbr.next() {
+            let kmer_read: KmerRead<KmerBits> = match mbr.next() {
                 Some(kmer_read) => kmer_read,
                 None => break,
             };

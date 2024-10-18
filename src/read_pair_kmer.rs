@@ -25,26 +25,14 @@ impl<KmerBits: KmerReverse> ReadPairKmer<KmerBits> {
             kmer: kmer.to_owned(),
         }
     }
-
-    pub fn read1(&self) -> ReadId {
-        self.read1
-    }
-
-    pub fn read2(&self) -> ReadId {
-        self.read2
-    }
-
-    pub fn kmer(&self) -> Kmer<KmerBits> {
-        self.kmer.to_owned()
-    }
 }
 
 impl<KmerBits: KmerReverse> BucketDataWrite for ReadPairKmer<KmerBits> {
     #[inline(always)]
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()> {
-        buffer.write_all(&self.read1().to_le_bytes())?;
-        buffer.write_all(&self.read2().to_le_bytes())?;
-        buffer.write_all(&self.kmer().to_le_bytes())?;
+        buffer.write_all(&self.read1.to_le_bytes())?;
+        buffer.write_all(&self.read2.to_le_bytes())?;
+        self.kmer.write(buffer)?;
         Ok(())
     }
 }
@@ -57,8 +45,7 @@ impl<KmerBits: KmerReverse> BucketDataRead for ReadPairKmer<KmerBits> {
         self.read1 = ReadId::from_le_bytes(buffer);
         file_buffer.read_exact(&mut buffer[..])?;
         self.read2 = ReadId::from_le_bytes(buffer);
-        file_buffer.read_exact(&mut buffer[..])?;
-        self.kmer = Kmer::new(KmerBits::from_le_bytes(buffer));
+        self.kmer.read(file_buffer)?;
         Ok(())
     }
 }

@@ -32,7 +32,7 @@ impl<KmerBits: KmerReverse> KmerRead<KmerBits> {
 impl<KmerBits: KmerReverse> BucketDataWrite for KmerRead<KmerBits> {
     #[inline(always)]
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()> {
-        buffer.write_all(&self.kmer().to_le_bytes())?;
+        self.kmer.write(buffer)?;
         buffer.write_all(&self.read_id().to_le_bytes())?;
         Ok(())
     }
@@ -42,10 +42,9 @@ impl<KmerBits: KmerReverse> BucketDataRead for KmerRead<KmerBits> {
     #[inline(always)]
     fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()> {
         let mut buffer = [0; 4];
+        self.kmer.read(file_buffer)?;
         file_buffer.read_exact(&mut buffer[..])?;
-        self.kmer = Kmer::new(KmerBits::from_le_bytes(buffer));
-        file_buffer.read_exact(&mut buffer[..])?;
-        self.read_id = KmerBits::from_le_bytes(buffer);
+        self.read_id = ReadId::from_le_bytes(buffer);
         Ok(())
     }
 }
