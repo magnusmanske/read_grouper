@@ -1,5 +1,5 @@
 use crate::data_bucket::{BucketDataRead, BucketDataWrite};
-use crate::KmerBits;
+use crate::KmerReverse;
 use crate::{kmer::Kmer, ReadId};
 use anyhow::Result;
 use std::io::{BufReader, Read, Write};
@@ -7,19 +7,19 @@ use std::{cmp::Ordering, fs::File, io::BufWriter};
 
 /// A kmer paired with a read id.
 #[derive(Debug, Default, Clone)]
-pub struct KmerRead {
-    kmer: Kmer,
+pub struct KmerRead<KmerBits> {
+    kmer: Kmer<KmerBits>,
     read_id: ReadId,
 }
 
-impl KmerRead {
+impl<KmerBits: KmerReverse> KmerRead<KmerBits> {
     #[inline(always)]
-    pub fn new(kmer: Kmer, read_id: ReadId) -> Self {
+    pub fn new(kmer: Kmer<KmerBits>, read_id: ReadId) -> Self {
         Self { kmer, read_id }
     }
 
     #[inline(always)]
-    pub fn kmer(&self) -> &Kmer {
+    pub fn kmer(&self) -> &Kmer<KmerBits> {
         &self.kmer
     }
 
@@ -29,7 +29,7 @@ impl KmerRead {
     }
 }
 
-impl BucketDataWrite for KmerRead {
+impl<KmerBits: KmerReverse> BucketDataWrite for KmerRead<KmerBits> {
     #[inline(always)]
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()> {
         buffer.write_all(&self.kmer().to_le_bytes())?;
@@ -38,7 +38,7 @@ impl BucketDataWrite for KmerRead {
     }
 }
 
-impl BucketDataRead for KmerRead {
+impl<KmerBits: KmerReverse> BucketDataRead for KmerRead<KmerBits> {
     #[inline(always)]
     fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()> {
         let mut buffer = [0; 4];
@@ -50,7 +50,7 @@ impl BucketDataRead for KmerRead {
     }
 }
 
-impl Ord for KmerRead {
+impl<KmerBits: KmerReverse> Ord for KmerRead<KmerBits> {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> Ordering {
         self.kmer()
@@ -59,16 +59,16 @@ impl Ord for KmerRead {
     }
 }
 
-impl PartialOrd for KmerRead {
+impl<KmerBits: KmerReverse> PartialOrd for KmerRead<KmerBits> {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Eq for KmerRead {}
+impl<KmerBits: KmerReverse> Eq for KmerRead<KmerBits> {}
 
-impl PartialEq for KmerRead {
+impl<KmerBits: KmerReverse> PartialEq for KmerRead<KmerBits> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.kmer == other.kmer && self.read_id == other.read_id

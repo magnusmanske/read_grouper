@@ -2,20 +2,21 @@ mod bucket_list;
 mod buf_reader_entry;
 mod data_bucket;
 mod kmer;
+mod kmer_bits;
 mod kmer_read;
 mod min_max_reads;
 mod multi_buf_reader;
 mod read_grouper;
 mod read_pair_kmer;
 
+use kmer_bits::*;
 use min_max_reads::MinMaxReads;
 use read_grouper::ReadGrouper;
 
-pub type KmerBits = u32;
 pub type ReadId = u32;
 
 fn main() {
-    let rg = ReadGrouper::new("/Users/mm6/rust/read_grouper/buckets");
+    let rg: ReadGrouper<Kmer16> = ReadGrouper::new("/Users/mm6/rust/read_grouper/buckets");
     let bucket_list = rg
         .read_bam_file("/Users/mm6/rust/read_grouper/SRR9217386.sorted.bam")
         .unwrap();

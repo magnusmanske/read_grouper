@@ -1,7 +1,7 @@
 use crate::{
     data_bucket::{BucketDataRead, BucketDataWrite},
     kmer::Kmer,
-    KmerBits, ReadId,
+    KmerReverse, ReadId,
 };
 use anyhow::Result;
 use std::{
@@ -11,14 +11,14 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct ReadPairKmer {
+pub struct ReadPairKmer<KmerBits> {
     read1: ReadId,
     read2: ReadId,
-    kmer: Kmer,
+    kmer: Kmer<KmerBits>,
 }
 
-impl ReadPairKmer {
-    pub fn new(read1: ReadId, read2: ReadId, kmer: &Kmer) -> Self {
+impl<KmerBits: KmerReverse> ReadPairKmer<KmerBits> {
+    pub fn new(read1: ReadId, read2: ReadId, kmer: &Kmer<KmerBits>) -> Self {
         Self {
             read1,
             read2,
@@ -34,12 +34,12 @@ impl ReadPairKmer {
         self.read2
     }
 
-    pub fn kmer(&self) -> Kmer {
+    pub fn kmer(&self) -> Kmer<KmerBits> {
         self.kmer.to_owned()
     }
 }
 
-impl BucketDataWrite for ReadPairKmer {
+impl<KmerBits: KmerReverse> BucketDataWrite for ReadPairKmer<KmerBits> {
     #[inline(always)]
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()> {
         buffer.write_all(&self.read1().to_le_bytes())?;
@@ -49,7 +49,7 @@ impl BucketDataWrite for ReadPairKmer {
     }
 }
 
-impl BucketDataRead for ReadPairKmer {
+impl<KmerBits: KmerReverse> BucketDataRead for ReadPairKmer<KmerBits> {
     #[inline(always)]
     fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()> {
         let mut buffer = [0; 4];
@@ -63,7 +63,7 @@ impl BucketDataRead for ReadPairKmer {
     }
 }
 
-impl Ord for ReadPairKmer {
+impl<KmerBits: KmerReverse> Ord for ReadPairKmer<KmerBits> {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> Ordering {
         self.read1
@@ -73,16 +73,16 @@ impl Ord for ReadPairKmer {
     }
 }
 
-impl PartialOrd for ReadPairKmer {
+impl<KmerBits: KmerReverse> PartialOrd for ReadPairKmer<KmerBits> {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Eq for ReadPairKmer {}
+impl<KmerBits: KmerReverse> Eq for ReadPairKmer<KmerBits> {}
 
-impl PartialEq for ReadPairKmer {
+impl<KmerBits: KmerReverse> PartialEq for ReadPairKmer<KmerBits> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.kmer == other.kmer && self.read1 == other.read1 && self.read2 == other.read2
