@@ -5,7 +5,7 @@ mod kmer;
 mod kmer_bits;
 mod kmer_read;
 mod min_max_reads;
-mod multi_buf_reader;
+mod multi_bucket_reader;
 mod read_grouper;
 mod read_pair_kmer;
 

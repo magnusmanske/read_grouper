@@ -1,7 +1,4 @@
-use crate::{
-    data_bucket::{BucketDataRead, BucketDataWrite},
-    KmerReverse,
-};
+use crate::{data_bucket::BucketDataWrite, multi_bucket_reader::BucketDataRead, KmerReverse};
 use anyhow::Result;
 use std::{
     fmt,

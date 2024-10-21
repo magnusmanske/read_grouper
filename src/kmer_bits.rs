@@ -1,4 +1,4 @@
-use crate::data_bucket::{BucketDataRead, BucketDataWrite};
+use crate::{data_bucket::BucketDataWrite, multi_bucket_reader::BucketDataRead};
 use anyhow::Result;
 use std::{
     fmt::{self, Display},

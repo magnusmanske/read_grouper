@@ -1,10 +1,16 @@
-use crate::{buf_reader_entry::BufReaderEntry, data_bucket::BucketDataRead};
+use crate::buf_reader_entry::BufReaderEntry;
+use anyhow::Result;
+use std::{fs::File, io::BufReader};
 
-pub struct MultiBufReader<T> {
+pub trait BucketDataRead: std::cmp::Ord + Default + Clone {
+    fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()>;
+}
+
+pub struct MultiBucketReader<T> {
     readers: Vec<BufReaderEntry<T>>,
 }
 
-impl<T: std::cmp::Ord + BucketDataRead + Default + Clone> MultiBufReader<T> {
+impl<T: BucketDataRead> MultiBucketReader<T> {
     pub fn new(files: &[String]) -> Self {
         Self {
             readers: files

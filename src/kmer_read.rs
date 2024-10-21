@@ -1,4 +1,5 @@
-use crate::data_bucket::{BucketDataRead, BucketDataWrite};
+use crate::data_bucket::BucketDataWrite;
+use crate::multi_bucket_reader::BucketDataRead;
 use crate::KmerReverse;
 use crate::{kmer::Kmer, ReadId};
 use anyhow::Result;

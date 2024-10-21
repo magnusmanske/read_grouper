@@ -1,7 +1,7 @@
 use crate::{
     bucket_list::BucketList, data_bucket::DataBucket, kmer::Kmer, kmer_read::KmerRead,
-    min_max_reads::MinMaxReads, multi_buf_reader::MultiBufReader, read_pair_kmer::ReadPairKmer,
-    KmerReverse, ReadId,
+    min_max_reads::MinMaxReads, multi_bucket_reader::MultiBucketReader,
+    read_pair_kmer::ReadPairKmer, KmerReverse, ReadId,
 };
 use anyhow::{anyhow, Result};
 use bam::RecordReader;
@@ -94,7 +94,7 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         bucket_list: &BucketList,
         min_max: &MinMaxReads,
     ) -> Result<(BucketList, HashMap<usize, usize>)> {
-        let mut mbr = MultiBufReader::new(bucket_list.filenames());
+        let mut mbr = MultiBucketReader::new(bucket_list.filenames());
 
         let sample_name = bucket_list.sample_name().to_string();
         let mut out_bucket = DataBucket::new(

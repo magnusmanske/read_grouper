@@ -1,7 +1,6 @@
 use crate::{
-    data_bucket::{BucketDataRead, BucketDataWrite},
-    kmer::Kmer,
-    KmerReverse, ReadId,
+    data_bucket::BucketDataWrite, kmer::Kmer, multi_bucket_reader::BucketDataRead, KmerReverse,
+    ReadId,
 };
 use anyhow::Result;
 use std::{
@@ -10,7 +9,7 @@ use std::{
     io::{BufReader, BufWriter, Read, Write},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct ReadPairKmer<KmerBits> {
     read1: ReadId,
     read2: ReadId,

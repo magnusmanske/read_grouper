@@ -1,16 +1,12 @@
 use anyhow::Result;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::BufWriter;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::{mem, thread};
 
-pub trait BucketDataWrite {
+pub trait BucketDataWrite: std::cmp::Ord + Send + 'static {
     fn write(&self, buffer: &mut BufWriter<File>) -> Result<()>;
-}
-
-pub trait BucketDataRead {
-    fn read(&mut self, file_buffer: &mut BufReader<File>) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -25,7 +21,7 @@ pub struct DataBucket<T> {
     filenames: Arc<Mutex<Vec<String>>>,   // The filenames of the written buckets
 }
 
-impl<T: std::cmp::Ord + BucketDataWrite + Send + 'static> DataBucket<T> {
+impl<T: BucketDataWrite> DataBucket<T> {
     pub fn new(bucket_size: usize, bucket_dir: &str, sample_name: &str, ending: &str) -> Self {
         Self {
             bucket_id: 0,
