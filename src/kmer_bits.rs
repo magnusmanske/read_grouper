@@ -1,6 +1,7 @@
 use crate::data_bucket::{BucketDataRead, BucketDataWrite};
 use anyhow::Result;
 use std::{
+    fmt::{self, Display},
     fs::File,
     io::{BufReader, BufWriter, Read, Write},
     ops::{Shl, Shr},
@@ -15,6 +16,7 @@ pub trait KmerReverse:
     + Clone
     + BucketDataWrite
     + BucketDataRead
+    + Display
     + Shl
     + Shr
     + Send
@@ -96,6 +98,22 @@ impl BucketDataRead for Kmer16 {
     }
 }
 
+impl Display for Kmer16 {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        for pos in 0..Self::bases() {
+            let base = match (self.0 >> (2 * (Self::bases() - pos - 1))) & 0b11 {
+                0 => b'A',
+                1 => b'C',
+                2 => b'G',
+                3 => b'T',
+                _ => unreachable!(),
+            };
+            write!(fmt, "{}", base as char)?;
+        }
+        Ok(())
+    }
+}
+
 impl KmerReverse for Kmer32 {
     #[inline(always)]
     fn bytes() -> usize {
@@ -152,6 +170,22 @@ impl Shr<Kmer32> for Kmer32 {
     fn shr(self, Self(rhs): Self) -> Self::Output {
         let Self(lhs) = self;
         Self(lhs >> rhs)
+    }
+}
+
+impl Display for Kmer32 {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        for pos in 0..Self::bases() {
+            let base = match (self.0 >> (2 * (Self::bases() - pos - 1))) & 0b11 {
+                0 => b'A',
+                1 => b'C',
+                2 => b'G',
+                3 => b'T',
+                _ => unreachable!(),
+            };
+            write!(fmt, "{}", base as char)?;
+        }
+        Ok(())
     }
 }
 

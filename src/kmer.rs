@@ -4,6 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::{
+    fmt,
     fs::File,
     io::{BufReader, BufWriter},
 };
@@ -49,6 +50,10 @@ impl<KmerBits: KmerReverse> Kmer<KmerBits> {
         quality_scores: &[u8],
         min_base_quality: u8,
     ) -> Vec<KmerBits> {
+        if sequence.len() + 1 < KmerBits::bases() {
+            // Sequence is too short
+            return Vec::new();
+        }
         let mut ret = Vec::with_capacity(sequence.len() - KmerBits::bases() + 1);
 
         // Generate first kmer
@@ -83,21 +88,12 @@ impl<KmerBits: KmerReverse> Kmer<KmerBits> {
     }
 }
 
-// impl<KmerBits: KmerReverse> fmt::Display for Kmer<KmerBits> {
-//     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-//         for pos in 0..KmerBits::bases() {
-//             let base = match (self.bits >> (2 * (KmerBits::bases() - pos - 1))) & 0b11 {
-//                 0 => b'A',
-//                 1 => b'C',
-//                 2 => b'G',
-//                 3 => b'T',
-//                 _ => unreachable!(),
-//             };
-//             write!(fmt, "{}", base as char)?;
-//         }
-//         Ok(())
-//     }
-// }
+impl<KmerBits: KmerReverse> fmt::Display for Kmer<KmerBits> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}", self.bits)?;
+        Ok(())
+    }
+}
 
 impl<KmerBits: KmerReverse> BucketDataWrite for Kmer<KmerBits> {
     #[inline(always)]
@@ -116,12 +112,13 @@ impl<KmerBits: KmerReverse> BucketDataRead for Kmer<KmerBits> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Kmer16;
+    use crate::{Kmer16, Kmer32};
 
     type K16 = Kmer<Kmer16>;
+    type K32 = Kmer<Kmer32>;
 
     #[test]
-    fn test_build_kmer_pair() {
+    fn test_build_kmer_pair16() {
         let seq = b"ACGTACGTACGTGTAC";
         let qual = [
             40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
@@ -137,7 +134,25 @@ mod tests {
     }
 
     #[test]
-    fn test_kmers_from_record_incremental() {
+    fn test_build_kmer_pair32() {
+        let seq = b"ACGTACGTACGTGTACACGTACGTACGTGTAC";
+        let qual = [
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+        ];
+        let (kmer, reverse_complement) = K32::build_kmer_pair(seq, &qual, 40).unwrap();
+        assert_eq!(kmer, Kmer32(1953185310873164721));
+        assert_eq!(reverse_complement, kmer.reverse_complement());
+
+        let qual = [
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+            40, 40, 40, 40, 40, 40, 40, 40, 40, 39,
+        ];
+        assert_eq!(K32::build_kmer_pair(seq, &qual, 40), None);
+    }
+
+    #[test]
+    fn test_kmers_from_record_incremental16() {
         let seq = b"ACGTACGTACGTGTACACGTACGTACGTGTAC";
         let qual = [
             40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
