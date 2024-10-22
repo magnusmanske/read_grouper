@@ -19,13 +19,13 @@ impl<T: BucketDataRead> MultiBucketReader<T> {
                 .collect(),
         }
     }
+}
 
-    pub fn is_empty(&self) -> bool {
-        self.readers.is_empty()
-    }
+impl<T: BucketDataRead> Iterator for MultiBucketReader<T> {
+    type Item = T;
 
-    // TODO as iterator?
-    pub fn next(&mut self) -> Option<T> {
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
         // Find the next entry to process
         let min_key = self
             .readers
@@ -35,7 +35,8 @@ impl<T: BucketDataRead> MultiBucketReader<T> {
             .map(|(key, _)| key)?;
         let ret = (*self.readers[min_key].last_entry_read()).clone();
 
-        // Remove reader if it has no more entries
+        // Load the next entry from the reader.
+        // Remove reader if it has no more entries.
         if self.readers[min_key].read_next_entry_failed() {
             self.readers.remove(min_key);
         }

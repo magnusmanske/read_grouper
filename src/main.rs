@@ -19,7 +19,7 @@ fn main() {
     let bucket_dir = "/Users/mm6/rust/read_grouper/buckets";
     let bam_file = "/Users/mm6/rust/read_grouper/SRR9217386.sorted.bam";
 
-    let rg: ReadGrouper<Kmer32> = ReadGrouper::new(bucket_dir);
+    let rg: ReadGrouper<Kmer16> = ReadGrouper::new(bucket_dir);
     let bucket_list = rg.read_bam_file(bam_file).unwrap();
     println!("Sample name: {}", bucket_list.sample_name());
     println!("Number of reads: {}", bucket_list.number_of_reads());
@@ -36,3 +36,9 @@ fn main() {
     //     println!("{}\t{}", key, stats[&key]);
     // }
 }
+
+/*
+\rm ./target/aarch64-apple-darwin/release/read_grouper ; \
+RUSTFLAGS="-C target-cpu=native" cargo build --release  --target aarch64-apple-darwin ; \
+time ./target/aarch64-apple-darwin/release/read_grouper
+*/

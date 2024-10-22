@@ -94,8 +94,6 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         bucket_list: &BucketList,
         min_max: &MinMaxReads,
     ) -> Result<(BucketList, HashMap<usize, usize>)> {
-        let mut mbr = MultiBucketReader::new(bucket_list.filenames());
-
         let sample_name = bucket_list.sample_name().to_string();
         let mut out_bucket = DataBucket::new(
             self.max_bucket_size,
@@ -106,25 +104,23 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         let mut stats = HashMap::new();
         let mut last_kmer: Kmer<KmerBits> = Kmer::default();
         let mut last_reads_ids = Vec::new();
-        while !mbr.is_empty() {
-            let kmer_read: KmerRead<KmerBits> = match mbr.next() {
-                Some(kmer_read) => kmer_read,
-                None => break,
-            };
 
-            // Flush reads if new kmer
-            if last_kmer != *kmer_read.kmer() {
-                *stats.entry(last_reads_ids.len()).or_insert(0usize) += 1;
-                self.process_kmer_grouped_reads(
-                    &last_kmer,
-                    &mut last_reads_ids,
-                    min_max,
-                    &mut out_bucket,
-                );
-                last_kmer.clone_from(kmer_read.kmer());
-            }
-            last_reads_ids.push(kmer_read.read_id());
-        }
+        MultiBucketReader::new(bucket_list.filenames()).for_each(
+            |kmer_read: KmerRead<KmerBits>| {
+                // Flush reads if new kmer
+                if last_kmer != *kmer_read.kmer() {
+                    *stats.entry(last_reads_ids.len()).or_insert(0usize) += 1;
+                    self.process_kmer_grouped_reads(
+                        &last_kmer,
+                        &mut last_reads_ids,
+                        min_max,
+                        &mut out_bucket,
+                    );
+                    last_kmer.clone_from(kmer_read.kmer());
+                }
+                last_reads_ids.push(kmer_read.read_id());
+            },
+        );
 
         *stats.entry(last_reads_ids.len()).or_insert(0) += 1;
         self.process_kmer_grouped_reads(&last_kmer, &mut last_reads_ids, min_max, &mut out_bucket);
