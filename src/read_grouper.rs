@@ -41,13 +41,7 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         );
         let mut read_number: ReadId = 0;
 
-        loop {
-            match reader.read_into(&mut record) {
-                Ok(true) => {}
-                Ok(false) => break,
-                Err(e) => panic!("{}", e),
-            }
-
+        while reader.read_into(&mut record)? {
             // Generate and process kmers
             let sequence = record.sequence().to_vec();
             let qualities = record.qualities().raw();
@@ -81,10 +75,10 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
                 for read1_pos in 0..read2_pos {
                     let rpk: ReadPairKmer<KmerBits> =
                         ReadPairKmer::new(reads[read1_pos], reads[read2_pos], kmer);
+                    println!("{rpk}");
                     bucket.add(rpk);
                 }
             }
-            // println!("{kmer}: {reads:?}");
         }
         reads.clear();
     }
@@ -105,26 +99,25 @@ impl<KmerBits: KmerReverse> ReadGrouper<KmerBits> {
         let mut last_kmer: Kmer<KmerBits> = Kmer::default();
         let mut last_reads_ids = Vec::new();
 
-        MultiBucketReader::new(bucket_list.filenames()).for_each(
-            |kmer_read: KmerRead<KmerBits>| {
-                // Flush reads if new kmer
-                if last_kmer != *kmer_read.kmer() {
-                    *stats.entry(last_reads_ids.len()).or_insert(0usize) += 1;
-                    self.process_kmer_grouped_reads(
-                        &last_kmer,
-                        &mut last_reads_ids,
-                        min_max,
-                        &mut out_bucket,
-                    );
-                    last_kmer.clone_from(kmer_read.kmer());
-                }
-                last_reads_ids.push(kmer_read.read_id());
-            },
-        );
+        let mbr = MultiBucketReader::new(bucket_list.filenames());
+        mbr.for_each(|kmer_read: KmerRead<KmerBits>| {
+            // Flush reads if new kmer
+            if last_kmer != *kmer_read.kmer() {
+                *stats.entry(last_reads_ids.len()).or_insert(0usize) += 1;
+                self.process_kmer_grouped_reads(
+                    &last_kmer,
+                    &mut last_reads_ids,
+                    min_max,
+                    &mut out_bucket,
+                );
+                last_kmer.clone_from(kmer_read.kmer());
+            }
+            last_reads_ids.push(kmer_read.read_id());
+        });
 
         *stats.entry(last_reads_ids.len()).or_insert(0) += 1;
         self.process_kmer_grouped_reads(&last_kmer, &mut last_reads_ids, min_max, &mut out_bucket);
-        stats.remove(&0); // Remove 0-read group
+        stats.remove(&0); // Remove 0-read group from stats
 
         // Write final bucket to disk
         let filenames = out_bucket.finish()?;

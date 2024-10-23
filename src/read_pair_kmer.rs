@@ -5,6 +5,7 @@ use crate::{
 use anyhow::Result;
 use std::{
     cmp::Ordering,
+    fmt,
     fs::File,
     io::{BufReader, BufWriter, Read, Write},
 };
@@ -23,6 +24,12 @@ impl<KmerBits: KmerReverse> ReadPairKmer<KmerBits> {
             read2,
             kmer: kmer.to_owned(),
         }
+    }
+}
+
+impl<KmerBits: KmerReverse> fmt::Display for ReadPairKmer<KmerBits> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {}, {})", self.read1, self.read2, self.kmer)
     }
 }
 
