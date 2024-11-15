@@ -14,6 +14,7 @@ pub trait KmerReverse:
     + Ord
     + PartialOrd
     + Clone
+    + std::fmt::Debug
     + BucketDataWrite
     + BucketDataRead
     + Display

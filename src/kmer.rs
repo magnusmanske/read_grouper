@@ -1,4 +1,7 @@
-use crate::{data_bucket::BucketDataWrite, multi_bucket_reader::BucketDataRead, KmerReverse};
+use crate::{
+    data_bucket::BucketDataWrite, kmer_with_position::KmerWithPosition,
+    multi_bucket_reader::BucketDataRead, KmerReverse,
+};
 use anyhow::Result;
 use std::{
     fmt,
@@ -15,6 +18,11 @@ impl<KmerBits: KmerReverse> Kmer<KmerBits> {
     #[inline(always)]
     pub fn new(kmer: KmerBits) -> Self {
         Self { bits: kmer }
+    }
+
+    #[inline(always)]
+    pub fn bits(&self) -> KmerBits {
+        self.bits.to_owned()
     }
 
     #[inline(always)]
@@ -42,6 +50,73 @@ impl<KmerBits: KmerReverse> Kmer<KmerBits> {
     }
 
     #[inline(always)]
+    fn build_kmer_pair_no_quality_scores(sequence_bases: &[u8]) -> Option<(KmerBits, KmerBits)> {
+        let mut kmer = KmerBits::default();
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..KmerBits::bases() {
+            let base: u8 = match sequence_bases[i] {
+                b'A' => 0,
+                b'C' => 1,
+                b'G' => 2,
+                b'T' => 3,
+                _ => return None,
+            };
+            kmer.add_base(base);
+        }
+        let reverse_kmer = kmer.reverse_complement(); // Reverse complement
+        Some((kmer, reverse_kmer))
+    }
+
+    #[inline(always)]
+    pub fn kmers_from_sequence(sequence: &[u8]) -> Vec<KmerBits> {
+        if sequence.len() + 1 < KmerBits::bases() {
+            // Sequence is too short
+            return Vec::new();
+        }
+        let mut ret = vec![];
+
+        // Generate first kmer
+        let seq = &sequence[0..KmerBits::bases()];
+        let (mut kmer, mut reverse_complement_kmer) =
+            match Self::build_kmer_pair_no_quality_scores(seq) {
+                Some(x) => x,
+                None => return ret,
+            };
+        ret.push(kmer.to_owned().min(reverse_complement_kmer));
+        let mut last_kmer_was_valid = true;
+
+        // Iterate over sequence
+        #[allow(clippy::needless_range_loop)]
+        for i in KmerBits::bases()..(sequence.len() - KmerBits::bases()) {
+            let base: u8 = match sequence[i] {
+                b'A' => 0,
+                b'C' => 1,
+                b'G' => 2,
+                b'T' => 3,
+                _ => {
+                    last_kmer_was_valid = false;
+                    continue;
+                }
+            };
+
+            if last_kmer_was_valid {
+                kmer.add_base(base);
+                reverse_complement_kmer = kmer.reverse_complement(); // Reverse complement
+                ret.push(kmer.to_owned().min(reverse_complement_kmer));
+            } else {
+                let seq = &sequence[i..(i + KmerBits::bases())];
+                if let Some((a, b)) = Self::build_kmer_pair_no_quality_scores(seq) {
+                    kmer = a;
+                    reverse_complement_kmer = b;
+                    ret.push(kmer.to_owned().min(reverse_complement_kmer));
+                    last_kmer_was_valid = true;
+                };
+            }
+        }
+        ret
+    }
+
+    #[inline(always)]
     pub fn kmers_from_record(
         sequence: &[u8],
         quality_scores: &[u8],
@@ -63,6 +138,7 @@ impl<KmerBits: KmerReverse> Kmer<KmerBits> {
             };
         ret.push(kmer.to_owned().min(reverse_complement_kmer));
 
+        // Iterate over sequence
         for i in KmerBits::bases()..(sequence.len()) {
             let base = sequence[i];
             if quality_scores[i] < min_base_quality {
@@ -78,6 +154,56 @@ impl<KmerBits: KmerReverse> Kmer<KmerBits> {
             kmer.add_base(base);
             reverse_complement_kmer = kmer.reverse_complement(); // Reverse complement
             ret.push(kmer.to_owned().min(reverse_complement_kmer));
+        }
+        ret.sort();
+        ret.dedup();
+        ret
+    }
+
+    #[inline(always)]
+    pub fn kmers_from_record_with_position(
+        sequence: &[u8],
+        quality_scores: &[u8],
+        min_base_quality: u8,
+    ) -> Vec<KmerWithPosition<KmerBits>> {
+        if sequence.len() + 1 < KmerBits::bases() {
+            // Sequence is too short
+            return Vec::new();
+        }
+        let mut ret = Vec::with_capacity(sequence.len() - KmerBits::bases() + 1);
+
+        // Generate first kmer
+        let seq = &sequence[0..KmerBits::bases()];
+        let qual = &quality_scores[0..KmerBits::bases()];
+        let (mut kmer, mut reverse_complement_kmer) =
+            match Self::build_kmer_pair(seq, qual, min_base_quality) {
+                Some(x) => x,
+                None => return ret,
+            };
+
+        let kmer_with_position: KmerWithPosition<KmerBits> =
+            KmerWithPosition::from_pair(kmer.to_owned(), reverse_complement_kmer, 0);
+        ret.push(kmer_with_position);
+
+        let mut position = 0;
+        for i in KmerBits::bases()..(sequence.len()) {
+            position += 1;
+            let base = sequence[i];
+            if quality_scores[i] < min_base_quality {
+                break; // Bad quality, abandon entire read
+            }
+            let base: u8 = match base {
+                b'A' => 0,
+                b'C' => 1,
+                b'G' => 2,
+                b'T' => 3,
+                _ => break, // Weird IUPAC letter, abandon entire read
+            };
+            kmer.add_base(base);
+            reverse_complement_kmer = kmer.reverse_complement(); // Reverse complement
+            let kmer_with_position: KmerWithPosition<KmerBits> =
+                KmerWithPosition::from_pair(kmer.to_owned(), reverse_complement_kmer, position);
+            ret.push(kmer_with_position);
         }
         ret.sort();
         ret.dedup();

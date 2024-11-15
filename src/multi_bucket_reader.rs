@@ -8,6 +8,8 @@ pub trait BucketDataRead: std::cmp::Ord + Default + Clone {
 
 pub struct MultiBucketReader<T> {
     readers: Vec<BufReaderEntry<T>>,
+    files: Vec<String>,
+    clean_after_read: bool,
 }
 
 impl<T: BucketDataRead> MultiBucketReader<T> {
@@ -17,7 +19,15 @@ impl<T: BucketDataRead> MultiBucketReader<T> {
                 .iter()
                 .map(|f| BufReaderEntry::new(f).unwrap())
                 .collect(),
+            files: files.to_vec(),
+            clean_after_read: false,
         }
+    }
+
+    /// If set to true, every file will be removed after the last entry is read.
+    pub fn clean_after_read(mut self) -> Self {
+        self.clean_after_read = true;
+        self
     }
 }
 
@@ -39,6 +49,10 @@ impl<T: BucketDataRead> Iterator for MultiBucketReader<T> {
         // Remove reader if it has no more entries.
         if self.readers[min_key].read_next_entry_failed() {
             self.readers.remove(min_key);
+            if self.clean_after_read {
+                std::fs::remove_file(&self.files[min_key]).expect("Could not remove file");
+            }
+            self.files.remove(min_key);
         }
 
         Some(ret)

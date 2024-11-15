@@ -18,12 +18,27 @@ pub struct ReadPairKmer<KmerBits> {
 }
 
 impl<KmerBits: KmerReverse> ReadPairKmer<KmerBits> {
+    #[inline(always)]
     pub fn new(read1: ReadId, read2: ReadId, kmer: &Kmer<KmerBits>) -> Self {
         Self {
             read1,
             read2,
             kmer: kmer.to_owned(),
         }
+    }
+
+    #[inline(always)]
+    pub fn read1(&self) -> ReadId {
+        self.read1
+    }
+
+    pub fn read2(&self) -> ReadId {
+        self.read2
+    }
+
+    #[inline(always)]
+    pub fn kmer(&self) -> Kmer<KmerBits> {
+        self.kmer.to_owned()
     }
 }
 

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bam = "*"
 anyhow = "*"
+flate2 = "*"
 
 [profile.release]
 opt-level = 3
