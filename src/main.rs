@@ -21,6 +21,8 @@ pub use read_grouper::ReadGrouper;
 
 pub type ReadId = u32;
 
+pub type KmerBases = Kmer32; // CHANGE THIS TO Kmer16 etc. to change kmer size
+
 fn cwd() -> String {
     std::env::current_dir()
         .unwrap()
@@ -42,8 +44,8 @@ fn compare_kmers(mut args: std::env::Args) {
     // let path2 = Path::new(&kmer_file_2);
     // let mut reader1 = ReadGrouper::get_uncompressed_or_gz_reader(path1);
     // let mut reader2 = ReadGrouper::get_uncompressed_or_gz_reader(path2);
-    let mut kmer1: Kmer<Kmer32> = Kmer::default();
-    let mut kmer2: Kmer<Kmer32> = Kmer::default();
+    let mut kmer1: Kmer<KmerBases> = Kmer::default();
+    let mut kmer2: Kmer<KmerBases> = Kmer::default();
     let mut kmers_read_1 = 1;
     let mut kmers_read_2 = 1;
     let mut kmers_equal = 0;
@@ -108,7 +110,7 @@ fn fasta2kmers(mut args: std::env::Args) {
     }
 
     let _ = std::fs::create_dir_all(&bucket_dir); // Ignore result
-    let mut rg: ReadGrouper<Kmer32> = ReadGrouper::new(&bucket_dir);
+    let mut rg: ReadGrouper<KmerBases> = ReadGrouper::new(&bucket_dir);
 
     let max_bucket_size = std::fs::metadata(&fasta_file).unwrap().len() / DESIRED_NUMBER_OF_BUCKETS;
     rg.set_max_bucket_size(max_bucket_size as usize);
@@ -142,7 +144,7 @@ fn fastq2kmers(mut args: std::env::Args) {
     }
 
     let _ = std::fs::create_dir_all(&bucket_dir); // Ignore result
-    let mut rg: ReadGrouper<Kmer32> = ReadGrouper::new(&bucket_dir);
+    let mut rg: ReadGrouper<KmerBases> = ReadGrouper::new(&bucket_dir);
 
     let max_bucket_size = std::fs::metadata(&fastq_file).unwrap().len() / DESIRED_NUMBER_OF_BUCKETS;
     rg.set_max_bucket_size(max_bucket_size as usize);
@@ -176,7 +178,7 @@ fn bam2kmers(mut args: std::env::Args) {
     }
 
     let _ = std::fs::create_dir_all(&bucket_dir); // Ignore result
-    let mut rg: ReadGrouper<Kmer32> = ReadGrouper::new(&bucket_dir);
+    let mut rg: ReadGrouper<KmerBases> = ReadGrouper::new(&bucket_dir);
 
     let max_bucket_size = std::fs::metadata(&fasta_file).unwrap().len() / DESIRED_NUMBER_OF_BUCKETS;
     rg.set_max_bucket_size(max_bucket_size as usize);
